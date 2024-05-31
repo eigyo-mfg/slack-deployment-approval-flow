@@ -28,19 +28,19 @@ export const PostDeployMessage = DefineFunction({
       },
       // MEMO: ワークフロービルダーから配列を渡すことができないため、複数のパラメータを受け取る
       githubActionEventTypeStaging: {
-        description: "Github Actionsを起動させるイベントタイプ 1つ目",
+        description: "ステージング：Github Actionsを起動させるイベントタイプ",
         type: Schema.types.string,
       },
       sendToSlackChannelIdStaging: {
-        description: "Slackに通知するチャンネルID 1つ目",
+        description: "ステージング：Slackに通知するチャンネルID",
         type: Schema.types.string,
       },
       githubActionEventTypeProduction: {
-        description: "Github Actionsを起動させるイベントタイプ 2つ目",
+        description: "本番：Github Actionsを起動させるイベントタイプ",
         type: Schema.types.string,
       },
       sendToSlackChannelIdProduction: {
-        description: "Slackに通知するチャンネルID 2つ目",
+        description: "本番：Slackに通知するチャンネルID",
         type: Schema.types.string,
       },
     },
