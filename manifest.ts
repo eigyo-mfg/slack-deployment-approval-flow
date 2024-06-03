@@ -12,4 +12,5 @@ export default Manifest({
   icon: "assets/github-mark.png",
   functions: [PostDeployMessage],
   botScopes: ["commands", "chat:write", "chat:write.public"],
+  outgoingDomains: ["api.github.com"],
 });
