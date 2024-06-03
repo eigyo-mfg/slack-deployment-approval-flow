@@ -26,17 +26,8 @@ export const PostDeployMessage = DefineFunction({
         description: "デプロイ対象のリポジトリ",
         type: Schema.types.string,
       },
-      // MEMO: ワークフロービルダーから配列を渡すことができないため、複数のパラメータを受け取る
-      githubActionEventTypeStaging: {
-        description: "ステージング：Github Actionsを起動させるイベントタイプ",
-        type: Schema.types.string,
-      },
       sendToSlackChannelIdStaging: {
         description: "ステージング：Slackに通知するチャンネルID",
-        type: Schema.types.string,
-      },
-      githubActionEventTypeProduction: {
-        description: "本番：Github Actionsを起動させるイベントタイプ",
         type: Schema.types.string,
       },
       sendToSlackChannelIdProduction: {
@@ -47,9 +38,7 @@ export const PostDeployMessage = DefineFunction({
     required: [
       "commitHash",
       "githubRepository",
-      "githubActionEventTypeStaging",
       "sendToSlackChannelIdStaging",
-      "githubActionEventTypeProduction",
       "sendToSlackChannelIdProduction",
     ],
   },
@@ -62,13 +51,11 @@ export default SlackFunction(
       commitHash: inputs.commitHash,
       channel: inputs.sendToSlackChannelIdStaging,
       repository: inputs.githubRepository,
-      eventType: inputs.githubActionEventTypeStaging,
     });
     await postMessage(client, {
       commitHash: inputs.commitHash,
       channel: inputs.sendToSlackChannelIdProduction,
       repository: inputs.githubRepository,
-      eventType: inputs.githubActionEventTypeProduction,
     });
     return { completed: false };
   },
@@ -82,8 +69,8 @@ export default SlackFunction(
     ) {
       params = {
         repository: body.function_data.inputs.githubRepository,
-        eventType: body.function_data.inputs.githubActionEventTypeStaging,
         commitHash: body.function_data.inputs.commitHash,
+        environment: "staging",
       };
     } else if (
       body.function_data.inputs.sendToSlackChannelIdProduction ===
@@ -91,8 +78,8 @@ export default SlackFunction(
     ) {
       params = {
         repository: body.function_data.inputs.githubRepository,
-        eventType: body.function_data.inputs.githubActionEventTypeProduction,
         commitHash: body.function_data.inputs.commitHash,
+        environment: "production",
       };
     } else {
       throw new Error("Invalid action_id");
@@ -123,7 +110,6 @@ const postMessage = async (
     commitHash: string;
     channel: string;
     repository: string;
-    eventType: string;
   },
 ) => {
   await client.chat.postMessage({
@@ -134,8 +120,7 @@ const postMessage = async (
         "text": {
           "type": "plain_text",
           "text": `コミット：${postParams.commitHash} \n
-            リポジトリ：${postParams.repository} \n
-            イベントタイプ${postParams.eventType}`,
+            リポジトリ：${postParams.repository}`,
         },
       },
       {
@@ -250,11 +235,16 @@ const dispatchGithubActions = async (
         Accept: "application/vnd.github.v3+json",
       },
       body: JSON.stringify({
-        event_type: params.eventType,
+        event_type: "deploy",
         client_payload: {
-          commit: params.commitHash,
+          commitHash: params.commitHash,
+          environment: params.environment,
         },
       }),
     },
-  ).then((res) => res.json());
+  ).then((res) => res.json())
+    .catch((error) => {
+      console.error(error);
+      throw new Error("Failed to dispatch Github Actions");
+    });
 };
