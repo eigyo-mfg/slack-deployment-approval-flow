@@ -235,7 +235,7 @@ const dispatchGithubActions = async (
         Accept: "application/vnd.github.v3+json",
       },
       body: JSON.stringify({
-        event_type: "deploy",
+        event_type: `${params.environment}_build`,
         client_payload: {
           commitHash: params.commitHash,
           environment: params.environment,
