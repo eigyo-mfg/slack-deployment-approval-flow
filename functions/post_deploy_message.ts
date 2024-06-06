@@ -22,6 +22,10 @@ export const PostDeployMessage = DefineFunction({
         description: "デプロイするコミットのハッシュ",
         type: Schema.types.string,
       },
+      githubRepositoryOwner: {
+        description: "デプロイ対象のリポジトリのオーナー",
+        type: Schema.types.string,
+      },
       githubRepository: {
         description: "デプロイ対象のリポジトリ",
         type: Schema.types.string,
@@ -37,6 +41,7 @@ export const PostDeployMessage = DefineFunction({
     },
     required: [
       "commitHash",
+      "githubRepositoryOwner",
       "githubRepository",
       "sendToSlackChannelIdStaging",
       "sendToSlackChannelIdProduction",
@@ -71,6 +76,7 @@ export default SlackFunction(
         repository: body.function_data.inputs.githubRepository,
         commitHash: body.function_data.inputs.commitHash,
         environment: "staging",
+        owner: body.function_data.inputs.githubRepositoryOwner,
       };
     } else if (
       body.function_data.inputs.sendToSlackChannelIdProduction ===
@@ -80,16 +86,20 @@ export default SlackFunction(
         repository: body.function_data.inputs.githubRepository,
         commitHash: body.function_data.inputs.commitHash,
         environment: "production",
+        owner: body.function_data.inputs.githubRepositoryOwner,
       };
     } else {
       throw new Error("Invalid action_id");
     }
 
     try {
-      await dispatchGithubActions(
+      const response = await dispatchGithubActions(
         params,
         env,
       );
+
+      if (!response) throw new Error("Failed to dispatch Github Actions");
+
       await completedDeployMessage(client, body);
       return { completed: true };
     } catch (error) {
@@ -119,8 +129,8 @@ const postMessage = async (
         "type": "section",
         "text": {
           "type": "plain_text",
-          "text": `コミット：${postParams.commitHash} \n
-            リポジトリ：${postParams.repository}`,
+          "text":
+            `コミット：${postParams.commitHash} \nリポジトリ：${postParams.repository}`,
         },
       },
       {
@@ -130,7 +140,7 @@ const postMessage = async (
             type: "button",
             text: {
               type: "plain_text",
-              text: `🚀Github Actionsを実行する`,
+              text: `🚀デプロイ`,
             },
             action_id: postParams.channel,
           },
@@ -165,7 +175,7 @@ const completedDeployMessage = async (
         type: "section",
         text: {
           type: "plain_text",
-          text: `⭕️Github Actionsを実行しました`,
+          text: `⭕️実行しました`,
         },
       },
     ],
@@ -207,7 +217,7 @@ const failedDeployMessage = async (
             type: "button",
             text: {
               type: "plain_text",
-              text: `🚀Github Actionsを再実行`,
+              text: `🚀再デプロイ`,
             },
           },
         ],
@@ -227,7 +237,7 @@ const dispatchGithubActions = async (
   env: Env,
 ) => {
   return await fetch(
-    `https://api.github.com/repos/${env.OWNER}/${params.repository}/dispatches`,
+    `https://api.github.com/repos/${params.owner}/${params.repository}/dispatches`,
     {
       method: "POST",
       headers: {
@@ -242,7 +252,7 @@ const dispatchGithubActions = async (
         },
       }),
     },
-  ).then((res) => res.json())
+  ).then((response) => response.ok)
     .catch((error) => {
       console.error(error);
       throw new Error("Failed to dispatch Github Actions");
