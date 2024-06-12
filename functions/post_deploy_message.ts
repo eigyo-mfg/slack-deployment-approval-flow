@@ -65,12 +65,13 @@ export default SlackFunction(
     return { completed: false };
   },
 ).addBlockActionsHandler(
-  new RegExp(".+"),
+  new RegExp("-deploy"),
   async ({ action, client, body, env }) => {
     let params: DispatchGithubActionsParams;
     // アクションIDによって設定するパラメータを変更する
     if (
-      body.function_data.inputs.sendToSlackChannelIdStaging === action.action_id
+      `${body.function_data.inputs.sendToSlackChannelIdStaging}-deploy` ===
+        action.action_id
     ) {
       params = {
         repository: body.function_data.inputs.githubRepository,
@@ -79,7 +80,7 @@ export default SlackFunction(
         owner: body.function_data.inputs.githubRepositoryOwner,
       };
     } else if (
-      body.function_data.inputs.sendToSlackChannelIdProduction ===
+      `${body.function_data.inputs.sendToSlackChannelIdProduction}-deploy` ===
         action.action_id
     ) {
       params = {
@@ -107,6 +108,12 @@ export default SlackFunction(
       return { completed: false };
     }
   },
+).addBlockActionsHandler(
+  new RegExp("-cancel"),
+  async ({ client, body }) => {
+    await deleteDeployMessage(client, body);
+    return { completed: true };
+  },
 );
 
 /**
@@ -129,8 +136,7 @@ const postMessage = async (
         "type": "section",
         "text": {
           "type": "plain_text",
-          "text":
-            `コミット：${postParams.commitHash} \nリポジトリ：${postParams.repository}`,
+          "text": `コミット：${postParams.commitHash}`,
         },
       },
       {
@@ -142,7 +148,20 @@ const postMessage = async (
               type: "plain_text",
               text: `🚀デプロイ`,
             },
-            action_id: postParams.channel,
+            action_id: `${postParams.channel}-deploy`,
+          },
+        ],
+      },
+      {
+        type: "actions",
+        elements: [
+          {
+            type: "button",
+            text: {
+              type: "plain_text",
+              text: `🚧キャンセル`,
+            },
+            action_id: `${postParams.channel}-cancel`,
           },
         ],
       },
@@ -164,8 +183,8 @@ const completedDeployMessage = async (
     >
   >,
 ) => {
-  // 実行ボタンを抜いたメッセージを取得
-  const excludeButtonBlocks = body.message?.blocks.slice(0, -1) ?? [];
+  // 実行ボタン, キャンセルボタンを抜いたメッセージを取得
+  const excludeButtonBlocks = body.message?.blocks.slice(0, -2) ?? [];
   await client.chat.update({
     channel: body.channel?.id,
     ts: body.container.message_ts,
@@ -196,8 +215,8 @@ const failedDeployMessage = async (
     >
   >,
 ) => {
-  // 実行ボタンを抜いたメッセージを取得
-  const excludeButtonBlocks = body.message?.blocks.slice(0, -1) ?? [];
+  // 実行ボタン, キャンセルボタンを抜いたメッセージを取得
+  const excludeButtonBlocks = body.message?.blocks.slice(0, -2) ?? [];
   await client.chat.update({
     channel: body.channel?.id,
     ts: body.container.message_ts,
@@ -221,6 +240,38 @@ const failedDeployMessage = async (
             },
           },
         ],
+      },
+    ],
+  });
+};
+
+/**
+ * キャンセルボタンを押下した際にデプロイボタンを削除する
+ * @param client
+ * @param body
+ */
+const deleteDeployMessage = async (
+  client: SlackAPIClient,
+  body: BlockActionInvocationBody<
+    FunctionRuntimeParameters<
+      ParameterSetDefinition,
+      PossibleParameterKeys<ParameterSetDefinition>
+    >
+  >,
+) => {
+  // 実行ボタン, キャンセルボタンを抜いたメッセージを取得
+  const excludeButtonBlocks = body.message?.blocks.slice(0, -2) ?? [];
+  await client.chat.update({
+    channel: body.channel?.id,
+    ts: body.container.message_ts,
+    blocks: [
+      ...excludeButtonBlocks,
+      {
+        type: "section",
+        text: {
+          type: "plain_text",
+          text: `🚧キャンセルが押されたのでデプロイボタンが削除されました`,
+        },
       },
     ],
   });
