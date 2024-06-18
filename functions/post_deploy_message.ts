@@ -61,7 +61,7 @@ export default SlackFunction(
       commitHash: inputs.commitHash,
       channel: inputs.sendToSlackChannelIdProduction,
       repository: inputs.githubRepository,
-    });
+    }, true);
     return { completed: false };
   },
 ).addBlockActionsHandler(
@@ -120,6 +120,7 @@ export default SlackFunction(
  * slackにメッセージを投稿する
  * @param client
  * @param postParams
+ * @param prod
  */
 const postMessage = async (
   client: SlackAPIClient,
@@ -128,6 +129,7 @@ const postMessage = async (
     channel: string;
     repository: string;
   },
+  prod: boolean = false,
 ) => {
   await client.chat.postMessage({
     channel: postParams.channel,
@@ -146,7 +148,7 @@ const postMessage = async (
             type: "button",
             text: {
               type: "plain_text",
-              text: `🚀デプロイ`,
+              text: `🚀デプロイ（${prod ? "本番" : "ステージング"}）`,
             },
             action_id: `${postParams.channel}-deploy`,
           },
