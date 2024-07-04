@@ -196,7 +196,7 @@ const completedDeployMessage = async (
         type: "section",
         text: {
           type: "plain_text",
-          text: `⭕️実行しました`,
+          text: `<@${body.user.name}>clicked! ⭕️実行しました`,
         },
       },
     ],
@@ -272,7 +272,7 @@ const deleteDeployMessage = async (
         type: "section",
         text: {
           type: "plain_text",
-          text: `🚧キャンセルが押されたのでデプロイボタンが削除されました`,
+          text: `<@${body.user.name}>clicked! 🚧キャンセルしました`,
         },
       },
     ],
