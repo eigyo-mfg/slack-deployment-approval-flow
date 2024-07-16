@@ -7,7 +7,10 @@ import {
   ParameterSetDefinition,
   PossibleParameterKeys,
 } from "deno-slack-sdk/parameters/types.ts";
-import { DispatchGithubActionsParams } from "../types/dispatch_github_actions.ts";
+import {
+  DispatchGithubActionsParams,
+  PostMessageParams,
+} from "../types/index.ts";
 
 // 「QA確認OK」ボタンを押下後にデプロイボタンを表示するためのメッセージを投稿する関数
 export const PostDeployMessage = DefineFunction({
@@ -18,8 +21,16 @@ export const PostDeployMessage = DefineFunction({
   source_file: "functions/post_deploy_message.ts",
   input_parameters: {
     properties: {
-      commitHash: {
-        description: "デプロイするコミットのハッシュ",
+      apiCommitHash: {
+        description: "apiにデプロイするコミットのハッシュ",
+        type: Schema.types.string,
+      },
+      frontendCommitHash: {
+        description: "frontendにデプロイするコミットのハッシュ",
+        type: Schema.types.string,
+      },
+      schemaCommitHash: {
+        description: "schemaにデプロイするコミットのハッシュ",
         type: Schema.types.string,
       },
       githubRepositoryOwner: {
@@ -40,7 +51,6 @@ export const PostDeployMessage = DefineFunction({
       },
     },
     required: [
-      "commitHash",
       "githubRepositoryOwner",
       "githubRepository",
       "sendToSlackChannelIdStaging",
@@ -53,14 +63,16 @@ export default SlackFunction(
   PostDeployMessage,
   async ({ inputs, client }) => {
     await postMessage(client, {
-      commitHash: inputs.commitHash,
+      apiCommitHash: inputs.apiCommitHash,
+      frontendCommitHash: inputs.frontendCommitHash,
+      schemaCommitHash: inputs.schemaCommitHash,
       channel: inputs.sendToSlackChannelIdStaging,
-      repository: inputs.githubRepository,
     });
     await postMessage(client, {
-      commitHash: inputs.commitHash,
+      apiCommitHash: inputs.apiCommitHash,
+      frontendCommitHash: inputs.frontendCommitHash,
+      schemaCommitHash: inputs.schemaCommitHash,
       channel: inputs.sendToSlackChannelIdProduction,
-      repository: inputs.githubRepository,
     }, true);
     return { completed: false };
   },
@@ -75,7 +87,9 @@ export default SlackFunction(
     ) {
       params = {
         repository: body.function_data.inputs.githubRepository,
-        commitHash: body.function_data.inputs.commitHash,
+        apiCommitHash: body.function_data.inputs.apiCommitHash,
+        frontendCommitHash: body.function_data.inputs.frontendCommitHash,
+        schemaCommitHash: body.function_data.inputs.schemaCommitHash,
         environment: "staging",
         owner: body.function_data.inputs.githubRepositoryOwner,
       };
@@ -85,7 +99,9 @@ export default SlackFunction(
     ) {
       params = {
         repository: body.function_data.inputs.githubRepository,
-        commitHash: body.function_data.inputs.commitHash,
+        apiCommitHash: body.function_data.inputs.apiCommitHash,
+        frontendCommitHash: body.function_data.inputs.frontendCommitHash,
+        schemaCommitHash: body.function_data.inputs.schemaCommitHash,
         environment: "production",
         owner: body.function_data.inputs.githubRepositoryOwner,
       };
@@ -124,13 +140,20 @@ export default SlackFunction(
  */
 const postMessage = async (
   client: SlackAPIClient,
-  postParams: {
-    commitHash: string;
-    channel: string;
-    repository: string;
-  },
+  postParams: PostMessageParams,
   prod: boolean = false,
 ) => {
+  let message = "";
+
+  if (postParams.apiCommitHash) {
+    message += `apiコミット：${postParams.apiCommitHash}\n`;
+  }
+  if (postParams.frontendCommitHash) {
+    message += `frontendコミット：${postParams.frontendCommitHash}\n`;
+  }
+  if (postParams.schemaCommitHash) {
+    message += `schemaコミット：${postParams.schemaCommitHash}\n`;
+  }
   await client.chat.postMessage({
     channel: postParams.channel,
     blocks: [
@@ -138,7 +161,7 @@ const postMessage = async (
         "type": "section",
         "text": {
           "type": "plain_text",
-          "text": `コミット：${postParams.commitHash}`,
+          "text": message,
         },
       },
       {
@@ -289,6 +312,21 @@ const dispatchGithubActions = async (
   params: DispatchGithubActionsParams,
   env: Env,
 ) => {
+  const clientPayload: { [key: string]: string | undefined } = {
+    environment: params.environment,
+  };
+
+  // コミットハッシュがある場合は追加する
+  if (params.apiCommitHash) {
+    clientPayload.apiCommitHash = params.apiCommitHash;
+  }
+  if (params.frontendCommitHash) {
+    clientPayload.frontendCommitHash = params.frontendCommitHash;
+  }
+  if (params.schemaCommitHash) {
+    clientPayload.schemaCommitHash = params.schemaCommitHash;
+  }
+
   return await fetch(
     `https://api.github.com/repos/${params.owner}/${params.repository}/dispatches`,
     {
@@ -298,11 +336,8 @@ const dispatchGithubActions = async (
         Accept: "application/vnd.github.v3+json",
       },
       body: JSON.stringify({
-        event_type: `${params.environment}`,
-        client_payload: {
-          commitHash: params.commitHash,
-          environment: params.environment,
-        },
+        event_type: params.environment,
+        client_payload: clientPayload,
       }),
     },
   ).then((response) => response.ok)
