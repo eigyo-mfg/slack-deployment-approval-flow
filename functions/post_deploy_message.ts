@@ -8,6 +8,7 @@ import {
   PossibleParameterKeys,
 } from "deno-slack-sdk/parameters/types.ts";
 import {
+  CreatePullRequestParams,
   DispatchGithubActionsParams,
   PostMessageParams,
 } from "../types/index.ts";
@@ -21,6 +22,10 @@ export const PostDeployMessage = DefineFunction({
   source_file: "functions/post_deploy_message.ts",
   input_parameters: {
     properties: {
+      branch: {
+        description: "ブランチ名",
+        type: Schema.types.string,
+      },
       apiCommitHash: {
         description: "apiにデプロイするコミットのハッシュ",
         type: Schema.types.string,
@@ -51,6 +56,7 @@ export const PostDeployMessage = DefineFunction({
       },
     },
     required: [
+      "branch",
       "githubRepositoryOwner",
       "githubRepository",
       "sendToSlackChannelIdStaging",
@@ -61,7 +67,15 @@ export const PostDeployMessage = DefineFunction({
 
 export default SlackFunction(
   PostDeployMessage,
-  async ({ inputs, client }) => {
+  async ({ inputs, client, env }) => {
+    const createPullRequestResult = await createPullRequest({
+      repository: inputs.githubRepository,
+      owner: inputs.githubRepositoryOwner,
+      branch: inputs.branch,
+    }, env);
+    if (!createPullRequestResult) {
+      throw new Error("Failed to create Pull Request");
+    }
     await postMessage(client, {
       apiCommitHash: inputs.apiCommitHash,
       frontendCommitHash: inputs.frontendCommitHash,
@@ -300,6 +314,33 @@ const deleteDeployMessage = async (
       },
     ],
   });
+};
+
+const createPullRequest = async (
+  params: CreatePullRequestParams,
+  env: Env,
+) => {
+  return await fetch(
+    `https://api.github.com/repos/${params.owner}/${params.repository}/pulls`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${env.GITHUB_TOKEN}`,
+        Accept: "application/vnd.github.v3+json",
+      },
+      body: JSON.stringify({
+        owner: params.owner,
+        repo: params.repository,
+        title: `Merge ${params.branch} into main`,
+        head: params.branch,
+        base: "main",
+      }),
+    },
+  ).then((response) => response.ok)
+    .catch((error) => {
+      console.error(error);
+      throw new Error("Failed to create Pull Request");
+    });
 };
 
 /**

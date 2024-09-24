@@ -13,3 +13,9 @@ export type PostMessageParams = {
   frontendCommitHash: string | undefined;
   schemaCommitHash: string | undefined;
 };
+
+export type CreatePullRequestParams = {
+  repository: string;
+  owner: string;
+  branch: string;
+};
