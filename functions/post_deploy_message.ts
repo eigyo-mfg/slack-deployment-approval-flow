@@ -21,6 +21,10 @@ export const PostDeployMessage = DefineFunction({
   source_file: "functions/post_deploy_message.ts",
   input_parameters: {
     properties: {
+      branch: {
+        description: "ブランチ名",
+        type: Schema.types.string,
+      },
       apiCommitHash: {
         description: "apiにデプロイするコミットのハッシュ",
         type: Schema.types.string,
@@ -51,6 +55,7 @@ export const PostDeployMessage = DefineFunction({
       },
     },
     required: [
+      "branch",
       "githubRepositoryOwner",
       "githubRepository",
       "sendToSlackChannelIdStaging",
@@ -104,6 +109,7 @@ export default SlackFunction(
         schemaCommitHash: body.function_data.inputs.schemaCommitHash,
         environment: "production",
         owner: body.function_data.inputs.githubRepositoryOwner,
+        branch: body.function_data.inputs.branch,
       };
     } else {
       throw new Error("Invalid action_id");
@@ -325,6 +331,11 @@ const dispatchGithubActions = async (
   }
   if (params.schemaCommitHash) {
     clientPayload.schemaCommitHash = params.schemaCommitHash;
+  }
+
+  // 本番デプロイの場合はブランチ名を追加する
+  if (params.environment === "production") {
+    clientPayload.branch = params.branch;
   }
 
   return await fetch(
