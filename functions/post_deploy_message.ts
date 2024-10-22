@@ -82,38 +82,17 @@ export default SlackFunction(
     return { completed: false };
   },
 ).addBlockActionsHandler(
-  new RegExp("-deploy"),
-  async ({ action, client, body, env }) => {
-    let params: DispatchGithubActionsParams;
-    // アクションIDによって設定するパラメータを変更する
-    if (
-      `${body.function_data.inputs.sendToSlackChannelIdStaging}-deploy` ===
-        action.action_id
-    ) {
-      params = {
-        repository: body.function_data.inputs.githubRepository,
-        apiCommitHash: body.function_data.inputs.apiCommitHash,
-        frontendCommitHash: body.function_data.inputs.frontendCommitHash,
-        schemaCommitHash: body.function_data.inputs.schemaCommitHash,
-        environment: "staging",
-        owner: body.function_data.inputs.githubRepositoryOwner,
-      };
-    } else if (
-      `${body.function_data.inputs.sendToSlackChannelIdProduction}-deploy` ===
-        action.action_id
-    ) {
-      params = {
-        repository: body.function_data.inputs.githubRepository,
-        apiCommitHash: body.function_data.inputs.apiCommitHash,
-        frontendCommitHash: body.function_data.inputs.frontendCommitHash,
-        schemaCommitHash: body.function_data.inputs.schemaCommitHash,
-        environment: "production",
-        owner: body.function_data.inputs.githubRepositoryOwner,
-        branch: body.function_data.inputs.branch,
-      };
-    } else {
-      throw new Error("Invalid action_id");
-    }
+  "production-deploy",
+  async ({ client, body, inputs, env }) => {
+    const params: DispatchGithubActionsParams = {
+      repository: body.function_data.inputs.githubRepository,
+      apiCommitHash: body.function_data.inputs.apiCommitHash,
+      frontendCommitHash: body.function_data.inputs.frontendCommitHash,
+      schemaCommitHash: body.function_data.inputs.schemaCommitHash,
+      environment: "production",
+      owner: body.function_data.inputs.githubRepositoryOwner,
+      branch: body.function_data.inputs.branch,
+    };
 
     try {
       const response = await dispatchGithubActions(
@@ -123,7 +102,43 @@ export default SlackFunction(
 
       if (!response) throw new Error("Failed to dispatch Github Actions");
 
-      await completedDeployMessage(client, body);
+      await completedDeployMessage(
+        client,
+        body,
+        inputs.sendToSlackChannelIdProduction,
+        true,
+      );
+      return { completed: true };
+    } catch (error) {
+      await failedDeployMessage(client, body);
+      return { completed: false };
+    }
+  },
+).addBlockActionsHandler(
+  "staging-deploy",
+  async ({ client, body, inputs, env }) => {
+    const params: DispatchGithubActionsParams = {
+      repository: body.function_data.inputs.githubRepository,
+      apiCommitHash: body.function_data.inputs.apiCommitHash,
+      frontendCommitHash: body.function_data.inputs.frontendCommitHash,
+      schemaCommitHash: body.function_data.inputs.schemaCommitHash,
+      environment: "staging",
+      owner: body.function_data.inputs.githubRepositoryOwner,
+    };
+
+    try {
+      const response = await dispatchGithubActions(
+        params,
+        env,
+      );
+
+      if (!response) throw new Error("Failed to dispatch Github Actions");
+
+      await completedDeployMessage(
+        client,
+        body,
+        inputs.sendToSlackChannelIdStaging,
+      );
       return { completed: true };
     } catch (error) {
       await failedDeployMessage(client, body);
@@ -134,6 +149,16 @@ export default SlackFunction(
   new RegExp("-cancel"),
   async ({ client, body }) => {
     await deleteDeployMessage(client, body);
+    return { completed: true };
+  },
+).addBlockActionsHandler(
+  "delete-branch",
+  async ({ client, body, env }) => {
+    await deleteBranch({
+      client,
+      body,
+      env,
+    });
     return { completed: true };
   },
 );
@@ -179,7 +204,7 @@ const postMessage = async (
               type: "plain_text",
               text: `🚀デプロイ（${prod ? "本番" : "ステージング"}）`,
             },
-            action_id: `${postParams.channel}-deploy`,
+            action_id: `${prod ? "production" : "staging"}-deploy`,
           },
         ],
       },
@@ -192,7 +217,7 @@ const postMessage = async (
               type: "plain_text",
               text: `🚧キャンセル`,
             },
-            action_id: `${postParams.channel}-cancel`,
+            action_id: `${prod ? "production" : "staging"}-cancel`,
           },
         ],
       },
@@ -213,11 +238,13 @@ const completedDeployMessage = async (
       PossibleParameterKeys<ParameterSetDefinition>
     >
   >,
+  channel: string,
+  isProduction: boolean = false,
 ) => {
   // 実行ボタン, キャンセルボタンを抜いたメッセージを取得
   const excludeButtonBlocks = body.message?.blocks.slice(0, -2) ?? [];
   await client.chat.update({
-    channel: body.channel?.id,
+    channel,
     ts: body.container.message_ts,
     blocks: [
       ...excludeButtonBlocks,
@@ -230,6 +257,36 @@ const completedDeployMessage = async (
       },
     ],
   });
+
+  // 本番環境の時はブランチ削除ボタンを表示する
+  if (isProduction) {
+    await client.chat.postMessage({
+      channel,
+      ts: body.container.message_ts,
+      blocks: [
+        {
+          type: "actions",
+          elements: [
+            {
+              type: "button",
+              text: {
+                type: "plain_text",
+                text: `⛔️ブランチ削除`,
+              },
+              action_id: "delete-branch",
+            },
+          ],
+        },
+        {
+          type: "section",
+          text: {
+            type: "plain_text",
+            text: `削除対象ブランチ：${body.function_data.inputs.branch}`,
+          },
+        },
+      ],
+    });
+  }
 };
 
 /**
@@ -356,4 +413,61 @@ const dispatchGithubActions = async (
       console.error(error);
       throw new Error("Failed to dispatch Github Actions");
     });
+};
+
+/**
+ * ブランチ削除
+ */
+const deleteBranch = async ({
+  client,
+  body,
+  env,
+}: {
+  client: SlackAPIClient;
+  body: BlockActionInvocationBody<
+    FunctionRuntimeParameters<
+      ParameterSetDefinition,
+      PossibleParameterKeys<ParameterSetDefinition>
+    >
+  >;
+  env: Env;
+}) => {
+  const { githubRepositoryOwner, githubRepository, branch } =
+    body.function_data.inputs;
+  const response = await fetch(
+    `https://api.github.com/repos/${githubRepositoryOwner}/${githubRepository}/git/refs/heads/${branch}`,
+    {
+      method: "DELETE",
+      headers: {
+        Authorization: `Bearer ${env.GITHUB_TOKEN}`,
+        Accept: "application/vnd.github.v3+json",
+      },
+    },
+  ).then((response) => response.ok)
+    .catch((error) => {
+      console.error(error);
+      throw new Error("Failed to dispatch Github Actions");
+    });
+
+  if (!response) throw new Error("Failed to delete branch");
+  await client.chat.update({
+    channel: body.channel?.id,
+    ts: body.container.message_ts,
+    blocks: [
+      {
+        type: "section",
+        text: {
+          type: "plain_text",
+          text: `<@${body.user.name}>clicked! ⛔️ブランチを削除しました`,
+        },
+      },
+      {
+        type: "section",
+        text: {
+          type: "plain_text",
+          text: `削除したブランチ：${branch}`,
+        },
+      },
+    ],
+  });
 };
